@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from src.fixtures import get_fixtures, group_fixtures
+from src.fixtures import get_fixtures
 from src.model import load_model
 from src.predict import predict_match
 
@@ -50,7 +50,8 @@ def main():
         st.stop()
 
     fixtures = _load_fixtures()
-    grouped = group_fixtures(fixtures)
+    # Show matches in chronological order. Fixtures without a date sort last.
+    fixtures = sorted(fixtures, key=lambda f: (f.get("date") or "9999-99-99"))
 
     st.info(
         "Confidence is the probability of the single most-likely exact score — "
@@ -59,27 +60,32 @@ def main():
         icon="ℹ️",
     )
 
-    for label, games in grouped.items():
-        st.subheader(label)
-        for idx, g in enumerate(games):
-            home, away = g["home_team"], g["away_team"]
-            # Knockout slots (e.g. "W73", "1A") aren't real nations yet.
-            if home not in models.ratings or away not in models.ratings:
-                st.write(f"🔒 {home} vs {away} — teams not yet decided")
-                continue
+    current_date = None
+    for idx, g in enumerate(fixtures):
+        # New date header whenever the match date changes.
+        if g.get("date") != current_date:
+            current_date = g.get("date")
+            st.subheader(current_date or "Date TBD")
 
-            cols = st.columns([3, 2, 2])
-            cols[0].markdown(f"**{home}**  vs  **{away}**")
-            if g.get("status") == "FINISHED" and g.get("actual_home") is not None:
-                cols[1].markdown(f"Actual: {g['actual_home']}–{g['actual_away']}")
+        home, away = g["home_team"], g["away_team"]
+        # Knockout slots (e.g. "W73", "1A") aren't real nations yet.
+        if home not in models.ratings or away not in models.ratings:
+            st.write(f"🔒 {home} vs {away} — {g.get('group', '')} (teams not yet decided)")
+            continue
 
-            key = f"{label}-{idx}-{home}-{away}"
-            if cols[2].button("Predict", key=key):
-                with st.spinner("Predicting..."):
-                    p = predict_match(home, away, neutral=True,
-                                      tournament="FIFA World Cup", models=models)
-                render_prediction(p)
-            st.divider()
+        cols = st.columns([3, 2, 2])
+        cols[0].markdown(f"**{home}**  vs  **{away}**")
+        cols[0].caption(g.get("group", ""))
+        if g.get("status") == "FINISHED" and g.get("actual_home") is not None:
+            cols[1].markdown(f"Actual: {g['actual_home']}–{g['actual_away']}")
+
+        key = f"{idx}-{home}-{away}"
+        if cols[2].button("Predict", key=key):
+            with st.spinner("Predicting..."):
+                p = predict_match(home, away, neutral=True,
+                                  tournament="FIFA World Cup", models=models)
+            render_prediction(p)
+        st.divider()
 
 
 if __name__ == "__main__":
